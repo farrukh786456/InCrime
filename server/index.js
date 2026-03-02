@@ -9,7 +9,7 @@ const app = express();
 // CORS - Allow frontend Vercel URL
 const allowedOrigins = [
   'http://localhost:3000',
-  'https://in-crime-client-final.vercel.app',
+  'https://in-crime.vercel.app',
   'http://localhost:3001',
 ];
 if (process.env.CLIENT_URL) allowedOrigins.push(process.env.CLIENT_URL);
