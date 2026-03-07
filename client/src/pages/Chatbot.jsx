@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
+const API = process.env.REACT_APP_API_URL;
 import Navbar from '../components/Navbar';
 import {
   FiSend, FiMic, FiMicOff, FiPlus, FiTrash2, FiMessageSquare,
@@ -1230,6 +1231,20 @@ export default function Chatbot() {
   const [isTyping, setIsTyping] = useState(false);
   const chatRef = useRef(null);
   const textareaRef = useRef(null);
+  const typeMessage = (text, callback) => {
+  let i = 0;
+  let current = "";
+
+  const interval = setInterval(() => {
+    current += text[i];
+    callback(current);
+    i++;
+
+    if (i >= text.length) {
+      clearInterval(interval);
+    }
+  }, 5);
+};
 
   const bg       = dark ? '#0f1115' : C.light;
   const cardBg   = dark ? '#1a1d24' : C.white;
@@ -1293,24 +1308,96 @@ export default function Chatbot() {
     let botSuggs = localResult.followUp || [];
     let botTids = localResult.tids || [];
 
-    const allTids = [...new Set([...botTids, ...detectedTemplates.map(t => t.id)])];
+    const applicationKeywords = [
+  "bail",
+  "custody",
+  "divorce",
+  "fir",
+  "theft",
+  "complaint",
+  "application",
+  "maintenance",
+  "nikah",
+  "harassment",
+  "darulaman",
+  "challan",
+  "secondmarriage",
+  "attendance",
+  "consent",
+];
 
-    try {
-      const { data } = await axios.post('/api/chatbot/message', { message: msg });
-      botText = data.response;
-      botSuggs = data.suggestions && data.suggestions.length ? data.suggestions : localResult.followUp || [];
-    } catch {
-      // Use local fallback silently
-    }
+const containsApplicationKeyword = applicationKeywords.some(word =>
+  msg.toLowerCase().includes(word)
+);
 
-    const botMsg = { role: 'bot', text: botText, time: new Date().toLocaleTimeString('en-PK', { hour: '2-digit', minute: '2-digit' }), tids: allTids };
-    const finalMsgs = [...nextMsgs, botMsg];
-    setMessages(finalMsgs);
+let allTids = [];
+
+try {
+
+  const { data } = await axios.post(
+    `${API}/api/ai-chat`,
+    { message: msg }
+  );
+
+  botText = data.reply;
+
+  const refusalKeywords = [
+    "only provide information based on pakistan law",
+    "cannot advise",
+    "outside pakistan law"
+  ];
+
+const isRefusal = refusalKeywords.some(word =>
+  botText?.toLowerCase().includes(word)
+);
+
+
+  if (!isRefusal && containsApplicationKeyword) {
+    allTids = [...new Set([...botTids, ...detectedTemplates.map(t => t.id)])].slice(0, 4);
+  }
+
+  botSuggs = data.suggestions && data.suggestions.length
+    ? data.suggestions
+    : localResult.followUp || [];
+
+} catch (error) {
+
+  console.log("AI Error:", error);
+  botText = "Sorry, AI service is temporarily unavailable.";
+  botSuggs = [];
+}
+
+const time = new Date().toLocaleTimeString('en-PK', {
+  hour: '2-digit',
+  minute: '2-digit'
+});
+
+const botMsg = {
+  role: 'bot',
+  text: "",
+  time,
+  tids: allTids
+};
+
+setMessages(prev => [...prev, botMsg]);
+
+typeMessage(botText, (typedText) => {
+  setMessages(prev => {
+    const updated = [...prev];
+    updated[updated.length - 1].text = typedText;
+    return updated;
+  });
+});
     setSuggestions(botSuggs);
     setSuggTids(allTids);
+    setTimeout(() => {
     setIsTyping(false);
+}, (botText?.length || 0) * 5);
 
-    sess.messages = [...(sess.messages || []), botMsg];
+    sess.messages = [...(sess.messages || []), {
+  ...botMsg,
+  text: botText
+}];
     sess.suggestions = botSuggs;
     sess.suggTids = allTids;
     persist(updatedSessions.map(s => s.id === sessId ? sess : s));

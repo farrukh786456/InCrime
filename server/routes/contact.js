@@ -8,6 +8,20 @@ const { protect } = require('../middleware/auth');
 // @desc    Submit contact/review form
 // @access  Public (but user id attached if logged in)
 router.post('/', async (req, res) => {
+  // CHAT HISTORY
+router.get('/history', protect, async (req, res) => {
+  try {
+    const chats = await Chat.find({ user: req.user._id })
+      .populate('user', 'fullName username email')
+      .sort({ createdAt: -1 });
+
+    res.json({ success: true, chats });
+
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ success: false });
+  }
+});
   try {
     const { name, email, phone, subject, message, type, rating } = req.body;
 

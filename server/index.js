@@ -3,8 +3,24 @@ const mongoose = require('mongoose');
 const cors = require('cors');
 const dotenv = require('dotenv');
 dotenv.config();
+const { protect } = require('./middleware/auth');
+
+const { GoogleGenAI } = require('@google/genai');
+
+const Chat = require('./models/Chat');
+
+const ai = new GoogleGenAI({
+  apiKey: process.env.GEMINI_API_KEY,
+});
 
 const app = express();
+function normalizeQuestion(text) {
+  return text
+    .toLowerCase()
+    .replace(/[^\w\s]/g, '')
+    .replace(/what is|explain|tell me|define|kya hai|kya hoti hai/g, '')
+    .trim();
+}
 
 // CORS - Allow frontend Vercel URL
 const allowedOrigins = [
@@ -75,6 +91,119 @@ app.use('/api/admin', require('./routes/admin'));
 app.use('/api/contact', require('./routes/contact'));
 app.use('/api/chatbot', require('./routes/chatbot'));
 
+// Gemini AI Route
+app.post('/api/ai-chat', protect, async (req, res) => {
+  try {
+ const rawMessage = req.body.message?.trim() || "";
+ const userMessage = normalizeQuestion(rawMessage);
+
+if (!userMessage) {
+  return res.status(400).json({
+    success: false,
+    message: "Message is required",
+  });
+}
+
+// AI cache check
+const existingChat = await Chat.findOne({
+  message: userMessage
+});
+
+if (existingChat) {
+  return res.json({
+    success: true,
+    reply: existingChat.reply
+  });
+}
+
+    const previousChats = await Chat.find({ user: req.user._id })
+      .sort({ createdAt: -1 })
+      .limit(7);
+
+    const conversationHistory = previousChats.length
+      ? previousChats
+          .reverse()
+          .map(chat => `User: ${chat.message}\nAI: ${chat.reply}`)
+          .join("\n")
+      : "";
+
+    // ✅ PROMPT HERE
+    const systemPrompt = `
+You are a professional legal assistant for Pakistan.
+
+Rules:
+- Answer only according to Pakistan law.
+- If question is outside Pakistan law, politely refuse.
+- Keep answers short, clear and structured.
+- Do not give personal opinions.
+`;
+
+let response;
+
+try {
+
+  response = await ai.models.generateContent({
+    model: "gemini-2.5-flash",
+    contents: `
+${systemPrompt}
+
+Conversation History:
+${conversationHistory}
+
+User: ${rawMessage}
+AI:
+`
+  });
+
+} catch (geminiError) {
+
+  console.error("Gemini Error:", geminiError.message);
+
+  return res.json({
+    success: true,
+    reply: "AI service temporarily unavailable. Please try again.",
+    suggestions: [
+      "How to file FIR?",
+      "How to apply for bail?",
+      "What are my rights if arrested?"
+    ]
+  });
+
+}
+
+const text = response?.candidates?.[0]?.content?.parts?.[0]?.text || null;
+
+if (!text) {
+  return res.json({
+    success: true,
+    reply: "I couldn't generate a response right now."
+  });
+}
+
+try {
+
+await Chat.create({
+  user: req.user._id,
+  message: userMessage,
+  reply: text
+});
+} catch (dbError) {
+
+  console.error("Chat Save Error:", dbError.message);
+
+}
+
+res.json({
+  success: true,
+  reply: text
+});
+
+  } catch (error) {
+    console.error("Gemini Error:", error);
+    res.status(500).json({ success: false });
+  }
+});
+
 app.get('/api/health', (req, res) => res.json({ status: 'ok', time: new Date().toISOString() }));
 app.get('/', (req, res) => res.json({ message: 'InCrime API running', version: '1.0.0' }));
 
@@ -85,3 +214,4 @@ app.use((err, req, res, next) => {
 
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => console.log('Server running on port ' + PORT));
+

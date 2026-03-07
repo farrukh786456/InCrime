@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const { protect } = require('../middleware/auth');
+const Chat = require('../models/Chat');
 
 // ─── COMPREHENSIVE LEGAL KNOWLEDGE BASE ───────────────────────────────────
 const KB = [
@@ -237,5 +238,67 @@ router.get('/topics', protect, (req, res) => {
     ],
   });
 });
+// CHAT HISTORY ROUTE
+router.get('/history', protect, async (req, res) => {
+  try {
+    const chats = await Chat.find({ user: req.user._id })
+      .populate('user', 'fullName username email')
+      .sort({ createdAt: -1 });
 
+    res.json({
+      success: true,
+      chats
+    });
+
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ success: false, message: 'Server error' });
+  }
+});
+// ─── CHATBOT MESSAGE ROUTE ─────────────────────────────
+router.post('/ask', protect, async (req, res) => {
+  try {
+
+    const { message } = req.body;
+
+    if (!message) {
+      return res.status(400).json({ success: false, message: 'Message is required' });
+    }
+
+    const text = message.toLowerCase();
+
+    // Find matching knowledge
+    let match = KB.find(item =>
+      item.keywords.some(keyword => text.includes(keyword))
+    );
+
+    let reply;
+
+    if (match) {
+      reply = match.answer;
+    } else {
+      reply = "Sorry, I could not fully understand your question. Please ask about bail, FIR, divorce, harassment, custody, or other legal matters in Pakistan.";
+    }
+
+    // Save chat in database
+const chat = await Chat.create({
+  user: req.user._id,
+  fullName: req.user.fullName,
+  username: req.user.username,
+  email: req.user.email,
+  message: message,
+  reply: reply
+});
+
+    res.json({
+      success: true,
+      reply,
+      chatId: chat._id
+    });
+
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ success: false, message: 'Server error' });
+  }
+});
 module.exports = router;
