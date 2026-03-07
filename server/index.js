@@ -118,7 +118,7 @@ if (existingChat) {
 
     const previousChats = await Chat.find({ user: req.user._id })
       .sort({ createdAt: -1 })
-      .limit(7);
+      .limit(10);
 
     const conversationHistory = previousChats.length
       ? previousChats
@@ -142,6 +142,7 @@ let response;
 
 try {
 
+  // Primary model
   response = await ai.models.generateContent({
     model: "gemini-2.5-flash",
     contents: `
@@ -157,17 +158,39 @@ AI:
 
 } catch (geminiError) {
 
-  console.error("Gemini Error:", geminiError.message);
+  console.log("Primary model failed, switching to backup...");
 
-  return res.json({
-    success: true,
-    reply: "AI service temporarily unavailable. Please try again.",
-    suggestions: [
-      "How to file FIR?",
-      "How to apply for bail?",
-      "What are my rights if arrested?"
-    ]
-  });
+  try {
+
+    // Backup model
+    response = await ai.models.generateContent({
+      model: "gemini-3.1-flash-lite",
+      contents: `
+${systemPrompt}
+
+Conversation History:
+${conversationHistory}
+
+User: ${rawMessage}
+AI:
+`
+    });
+
+  } catch (backupError) {
+
+    console.error("Backup model also failed:", backupError.message);
+
+    return res.json({
+      success: true,
+      reply: "AI service temporarily unavailable. Please try again later.",
+      suggestions: [
+        "How to file FIR?",
+        "How to apply for bail?",
+        "What are my rights if arrested?"
+      ]
+    });
+
+  }
 
 }
 
