@@ -14,6 +14,7 @@ const ai = new GoogleGenAI({
 });
 
 const app = express();
+
 function normalizeQuestion(text) {
   return text
     .toLowerCase()
@@ -21,6 +22,18 @@ function normalizeQuestion(text) {
     .replace(/what is|explain|tell me|define|kya hai|kya hoti hai/g, '')
     .trim();
 }
+
+const formattingKeywords = [
+  "short",
+  "short answer",
+  "1 line",
+  "2 line",
+  "1 to 2 line",
+  "summary",
+  "summarize",
+  "roman urdu",
+  "translate"
+];
 
 // CORS - Allow frontend Vercel URL
 const allowedOrigins = [
@@ -105,9 +118,19 @@ if (!userMessage) {
 }
 
 // AI cache check
-const existingChat = await Chat.findOne({
-  message: userMessage
-});
+// Check if user is requesting formatting change
+const hasFormattingRequest = formattingKeywords.some(word =>
+  rawMessage.toLowerCase().includes(word)
+);
+
+// AI cache check (skip cache if formatting requested)
+let existingChat = null;
+
+if (!hasFormattingRequest) {
+  existingChat = await Chat.findOne({
+    message: userMessage
+  });
+}
 
 if (existingChat) {
   return res.json({
@@ -115,13 +138,15 @@ if (existingChat) {
     reply: existingChat.reply
   });
 }
-
     const previousChats = await Chat.find({ user: req.user._id })
       .sort({ createdAt: -1 })
       .limit(10);
+      const lastQuestion = previousChats.length
+  ? previousChats[0].message
+  : "";
 
     const conversationHistory = previousChats.length
-      ? previousChats
+      ? [...previousChats]
           .reverse()
           .map(chat => `User: ${chat.message}\nAI: ${chat.reply}`)
           .join("\n")
@@ -148,10 +173,15 @@ try {
     contents: `
 ${systemPrompt}
 
+Previous Question:
+${lastQuestion}
+
 Conversation History:
 ${conversationHistory}
 
-User: ${rawMessage}
+User Request:
+${rawMessage}
+
 AI:
 `
   });
@@ -168,10 +198,15 @@ AI:
       contents: `
 ${systemPrompt}
 
+Previous Question:
+${lastQuestion}
+
 Conversation History:
 ${conversationHistory}
 
-User: ${rawMessage}
+User Request:
+${rawMessage}
+
 AI:
 `
     });
