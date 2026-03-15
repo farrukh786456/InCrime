@@ -127,9 +127,9 @@ const hasFormattingRequest = formattingKeywords.some(word =>
 let existingChat = null;
 
 if (!hasFormattingRequest) {
-  existingChat = await Chat.findOne({
-    message: userMessage
-  });
+existingChat = await Chat.findOne({
+  message: userMessage
+}).sort({ createdAt: -1 });
 }
 
 if (existingChat) {
@@ -144,14 +144,12 @@ if (existingChat) {
       const lastQuestion = previousChats.length
   ? previousChats[0].message
   : "";
-
-    const conversationHistory = previousChats.length
-      ? [...previousChats]
-          .reverse()
-          .map(chat => `User: ${chat.message}\nAI: ${chat.reply}`)
-          .join("\n")
-      : "";
-
+if (!lastQuestion && hasFormattingRequest) {
+  return res.json({
+    success: true,
+    reply: "Please ask a complete question first before requesting a summary or translation."
+  });
+}
     // ✅ PROMPT HERE
     const systemPrompt = `
 You are a professional legal assistant for Pakistan.
@@ -170,17 +168,17 @@ try {
   // Primary model
   response = await ai.models.generateContent({
     model: "gemini-2.5-flash",
-    contents: `
+contents: `
 ${systemPrompt}
 
 Previous Question:
 ${lastQuestion}
 
-Conversation History:
-${conversationHistory}
-
 User Request:
 ${rawMessage}
+
+If the user asks for short answer, summary, or translation,
+apply it to the Previous Question answer.
 
 AI:
 `
@@ -201,11 +199,11 @@ ${systemPrompt}
 Previous Question:
 ${lastQuestion}
 
-Conversation History:
-${conversationHistory}
-
 User Request:
 ${rawMessage}
+
+If the user asks for short answer, summary, or translation,
+apply it to the Previous Question answer.
 
 AI:
 `
@@ -240,11 +238,13 @@ if (!text) {
 
 try {
 
-await Chat.create({
-  user: req.user._id,
-  message: userMessage,
-  reply: text
-});
+if (!hasFormattingRequest) {
+  await Chat.create({
+    user: req.user._id,
+    message: userMessage,
+    reply: text
+  });
+}
 } catch (dbError) {
 
   console.error("Chat Save Error:", dbError.message);
