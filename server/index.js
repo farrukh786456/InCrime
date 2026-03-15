@@ -18,7 +18,7 @@ const app = express();
 function normalizeQuestion(text) {
   return text
     .toLowerCase()
-    .replace(/[^\w\s]/g, '')
+    .replace(/[^\w\s.?]/g, '')
     .replace(/what is|explain|tell me|define|kya hai|kya hoti hai/g, '')
     .trim();
 }
@@ -138,13 +138,12 @@ if (existingChat) {
     reply: existingChat.reply
   });
 }
-    const previousChats = await Chat.find({ user: req.user._id })
-      .sort({ createdAt: -1 })
-      .limit(10);
-      const lastQuestion = previousChats.length
-  ? previousChats[0].message
-  : "";
-if (!lastQuestion && hasFormattingRequest) {
+    const lastChat = await Chat.findOne({ user: req.user._id })
+    .sort({ createdAt: -1 });
+    const lastQuestion = lastChat ? 
+    lastChat.message : "";
+    const lastAnswer = lastChat ? lastChat.reply : "";
+if (!lastAnswer && hasFormattingRequest) {
   return res.json({
     success: true,
     reply: "Please ask a complete question first before requesting a summary or translation."
@@ -160,26 +159,47 @@ Rules:
 - Keep answers short, clear and structured.
 - Do not give personal opinions.
 `;
-
+let textToTransform = hasFormattingRequest
+  ? (lastAnswer || "No previous answer available")
+  : "";
 let response;
 
 try {
 
   // Primary model
+  const isFormattingOnly = hasFormattingRequest;
   response = await ai.models.generateContent({
     model: "gemini-2.5-flash",
 contents: `
 ${systemPrompt}
 
-Previous Question:
-${lastQuestion}
+Context Question:
+${hasFormattingRequest ? "Ignore question context" : lastQuestion}
+
+TEXT TO TRANSFORM:
+${textToTransform}
 
 User Request:
 ${rawMessage}
 
-If the user asks for short answer, summary, or translation,
-apply it to the Previous Question answer.
+Formatting Request:
+${isFormattingOnly}
 
+Instructions:
+
+1. If Formatting Request = true:
+   - ONLY modify or transform the TEXT TO TRANSFORM.
+   - Return the transformed text only.
+   - Do NOT generate a new legal explanation.
+   - Do NOT change the topic.
+   - Do NOT add new information.
+
+2. If Formatting Request = false:
+   - Ignore TEXT TO TRANSFORM.
+   - Answer the user's question normally according to Pakistan law.
+
+Respond with the final answer only.
+Do NOT repeat the instructions, previous question, or previous answer.
 AI:
 `
   });
@@ -191,19 +211,39 @@ AI:
   try {
 
     // Backup model
+    const isFormattingOnly = hasFormattingRequest;
     response = await ai.models.generateContent({
       model: "gemini-2.5-flash-lite",
       contents: `
 ${systemPrompt}
 
-Previous Question:
-${lastQuestion}
+Context Question:
+${hasFormattingRequest ? "Ignore question context" : lastQuestion}
+
+TEXT TO TRANSFORM:
+${textToTransform}
 
 User Request:
 ${rawMessage}
 
-If the user asks for short answer, summary, or translation,
-apply it to the Previous Question answer.
+Formatting Request:
+${isFormattingOnly}
+
+Instructions:
+
+1. If Formatting Request = true:
+   - ONLY modify or transform the TEXT TO TRANSFORM.
+   - Return the transformed text only.
+   - Do NOT generate a new legal explanation.
+   - Do NOT change the topic.
+   - Do NOT add new information.
+
+2. If Formatting Request = false:
+   - Ignore TEXT TO TRANSFORM.
+   - Answer the user's question normally according to Pakistan law.
+
+Respond with the final answer only.
+Do NOT repeat the instructions, previous question, or previous answer.
 
 AI:
 `
@@ -238,13 +278,12 @@ if (!text) {
 
 try {
 
-if (!hasFormattingRequest) {
-  await Chat.create({
-    user: req.user._id,
-    message: userMessage,
-    reply: text
-  });
-}
+await Chat.create({
+  user: req.user._id,
+  message: userMessage,
+  reply: text
+});
+
 } catch (dbError) {
 
   console.error("Chat Save Error:", dbError.message);
