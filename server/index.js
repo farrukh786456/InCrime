@@ -26,13 +26,17 @@ function normalizeQuestion(text) {
 const formattingKeywords = [
   "short",
   "short answer",
+  "summary",
+  "summarize",
+  "simplify",
+  "make it short",
   "1 line",
   "2 line",
   "1 to 2 line",
-  "summary",
-  "summarize",
+  "translate",
+  "in urdu",
   "roman urdu",
-  "translate"
+  "in roman urdu"
 ];
 
 // CORS - Allow frontend Vercel URL
@@ -119,8 +123,10 @@ if (!userMessage) {
 
 // AI cache check
 // Check if user is requesting formatting change
-const hasFormattingRequest = formattingKeywords.some(word =>
-  rawMessage.toLowerCase().includes(word)
+const messageLower = rawMessage.toLowerCase();
+
+const hasFormattingRequest = formattingKeywords.some(keyword =>
+  messageLower.includes(keyword)
 );
 
 // AI cache check (skip cache if formatting requested)
@@ -132,7 +138,7 @@ existingChat = await Chat.findOne({
 }).sort({ createdAt: -1 });
 }
 
-if (existingChat) {
+if (existingChat && !hasFormattingRequest) {
   return res.json({
     success: true,
     reply: existingChat.reply
@@ -174,7 +180,7 @@ contents: `
 ${systemPrompt}
 
 Context Question:
-${hasFormattingRequest ? "Ignore question context" : lastQuestion}
+${lastQuestion}
 
 TEXT TO TRANSFORM:
 ${textToTransform}
@@ -188,6 +194,7 @@ ${isFormattingOnly}
 Instructions:
 
 1. If Formatting Request = true:
+   - Determine the formatting intent from the User Request.
    - ONLY modify or transform the TEXT TO TRANSFORM.
    - Return the transformed text only.
    - Do NOT generate a new legal explanation.
@@ -218,7 +225,7 @@ AI:
 ${systemPrompt}
 
 Context Question:
-${hasFormattingRequest ? "Ignore question context" : lastQuestion}
+${lastQuestion}
 
 TEXT TO TRANSFORM:
 ${textToTransform}
@@ -232,6 +239,7 @@ ${isFormattingOnly}
 Instructions:
 
 1. If Formatting Request = true:
+   - Determine the formatting intent from the User Request.
    - ONLY modify or transform the TEXT TO TRANSFORM.
    - Return the transformed text only.
    - Do NOT generate a new legal explanation.
